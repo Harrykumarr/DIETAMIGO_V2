@@ -42,8 +42,8 @@ const accountProfileSchema = new mongoose.Schema({
   timestamps: true,
 })
 
-// Ensure index for quick lookups by user
-accountProfileSchema.index({ user: 1 })
+// Note: 'unique: true' on the user field already creates an index.
+// Avoid duplicate index declarations to prevent Mongoose warnings.
 
 const AccountProfile = mongoose.models.AccountProfile || mongoose.model('AccountProfile', accountProfileSchema)
 

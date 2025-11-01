@@ -23,15 +23,6 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false, // Don't include password in queries by default
   },
-  // Password reset fields
-  resetPasswordToken: {
-    type: String,
-    select: false,
-  },
-  resetPasswordExpires: {
-    type: Date,
-    select: false,
-  },
   // User profile information
   profile: {
     age: {
@@ -71,7 +62,8 @@ const userSchema = new mongoose.Schema({
 });
 
 // Index for faster email lookups
-userSchema.index({ email: 1 });
+// Note: 'unique: true' on the email field already creates an index.
+// Avoid duplicate index declarations to prevent Mongoose warnings.
 
 // Hash password before saving
 userSchema.pre('save', async function (next) {
