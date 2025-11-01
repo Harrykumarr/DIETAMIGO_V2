@@ -12,9 +12,11 @@ export function middleware(req) {
 
   if (url.pathname === '/') {
     if (session) {
+      console.log('Redirecting to /dashboard');
       url.pathname = '/dashboard';
       return NextResponse.redirect(url);
     } else {
+      console.log('Redirecting to /api/auth/signin');
       url.pathname = '/api/auth/signin';
       return NextResponse.redirect(url);
     }
@@ -22,6 +24,7 @@ export function middleware(req) {
 
   if (url.pathname === '/api/auth/signin' && url.searchParams.has('callbackUrl')) {
     const callbackUrl = url.searchParams.get('callbackUrl');
+    console.log('Handling callbackUrl:', callbackUrl);
     url.pathname = callbackUrl ? new URL(callbackUrl).pathname : '/dashboard';
     return NextResponse.redirect(url);
   }
