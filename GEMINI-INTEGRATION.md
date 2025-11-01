@@ -6,8 +6,8 @@ The DietAmigo app now uses Google's Gemini AI models for intelligent diet recomm
 ## Features Implemented
 
 ### 🤖 AI Models Support
-- **Primary Model**: `gemini-1.5-pro` - Advanced reasoning and comprehensive responses
-- **Fallback Model**: `gemini-1.5-flash` - Faster responses when Pro is unavailable
+- **Primary Model**: `gemini-2.5-pro` - Advanced reasoning and comprehensive responses
+- **Fallback Model**: `gemini-2.5-flash` - Faster responses when Pro is unavailable
 - **Automatic Fallback**: Seamlessly switches between models based on availability
 
 ### 🔧 API Configuration
@@ -76,7 +76,7 @@ The DietAmigo app now uses Google's Gemini AI models for intelligent diet recomm
 ```json
 {
   "response": "AI generated response",
-  "model": "gemini-1.5-pro",
+  "model": "gemini-2.5-pro",
   "timestamp": "2025-10-03T..."
 }
 ```

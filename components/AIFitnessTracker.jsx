@@ -20,6 +20,11 @@ const AIFitnessTracker = () => {
   const [speechVolume, setSpeechVolume] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState(null);
+  const [sessionStartTime, setSessionStartTime] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [scriptsLoaded, setScriptsLoaded] = useState(false);
+  const [scriptLoadError, setScriptLoadError] = useState(null);
 
   // Helper Functions
   const calculateAngle = useCallback((a, b, c) => {
@@ -186,7 +191,80 @@ const AIFitnessTracker = () => {
     let title = exerciseName.replace('_', ' ');
     if (exerciseName === 'squats') title += ' (Side View)';
     setExerciseTitle(title.toUpperCase());
+    setSessionStartTime(new Date());
   }, []);
+
+  // Save exercise session
+  const saveExerciseSession = async () => {
+    if (repCounter === 0) {
+      setSaveMessage('Please complete at least one rep before saving.');
+      setTimeout(() => setSaveMessage(''), 3000);
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage('');
+
+    try {
+      const endTime = new Date();
+      const duration = sessionStartTime 
+        ? Math.round((endTime - sessionStartTime) / 1000) // duration in seconds
+        : 0;
+      
+      // Estimate calories burned (rough estimate: ~0.1-0.2 calories per rep depending on exercise)
+      const caloriesPerRep = {
+        squats: 0.15,
+        front_squats: 0.15,
+        pushups: 0.1,
+        bicep_curls: 0.05,
+        jumping_jacks: 0.2,
+      };
+      const estimatedCalories = Math.round(repCounter * (caloriesPerRep[currentExercise] || 0.1));
+
+      const exerciseNameMap = {
+        squats: 'Squats (Side View)',
+        front_squats: 'Front Squats',
+        pushups: 'Push-ups',
+        bicep_curls: 'Bicep Curls',
+        jumping_jacks: 'Jumping Jacks',
+      };
+
+      const response = await fetch('/api/exercise', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          exerciseType: currentExercise,
+          exerciseName: exerciseNameMap[currentExercise] || currentExercise,
+          reps: repCounter,
+          duration: duration,
+          caloriesBurned: estimatedCalories,
+          startTime: sessionStartTime || new Date(),
+          endTime: endTime,
+          feedback: [feedbackText].filter(Boolean),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save exercise session');
+      }
+
+      const data = await response.json();
+      setSaveMessage('Exercise session saved successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+
+      // Optionally reset after saving
+      // resetForNewExercise(currentExercise);
+    } catch (error) {
+      console.error('Error saving exercise session:', error);
+      setSaveMessage(`Error: ${error.message}`);
+      setTimeout(() => setSaveMessage(''), 5000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Main pose results handler
   const onResults = useCallback((results) => {
@@ -238,22 +316,89 @@ const AIFitnessTracker = () => {
     }
   }, [currentExercise, speak]);
 
-  // Initialize MediaPipe
+  // Load MediaPipe scripts dynamically
   useEffect(() => {
+    if (scriptsLoaded || typeof window === 'undefined') return;
+
+    const scripts = [
+      'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js',
+      'https://cdn.jsdelivr.net/npm/@mediapipe/control_utils@0.6/control_utils.js',
+      'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js',
+      'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js',
+    ];
+
+    let loadedCount = 0;
+    const scriptElements = [];
+
+    const checkAllLoaded = () => {
+      loadedCount++;
+      if (loadedCount === scripts.length) {
+        // Wait a bit for libraries to initialize
+        setTimeout(() => {
+          if (window.Pose && window.Camera) {
+            console.log('All MediaPipe libraries loaded successfully');
+            setScriptsLoaded(true);
+          } else {
+            console.error('MediaPipe libraries loaded but Pose/Camera not available');
+            setScriptLoadError('MediaPipe libraries loaded but not available on window object');
+          }
+        }, 500);
+      }
+    };
+
+    scripts.forEach((src) => {
+      // Check if script already loaded
+      if (document.querySelector(`script[src="${src}"]`)) {
+        checkAllLoaded();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = src;
+      script.crossOrigin = 'anonymous';
+      script.async = true;
+      script.onload = () => {
+        console.log(`Loaded: ${src}`);
+        checkAllLoaded();
+      };
+      script.onerror = (e) => {
+        console.error(`Error loading ${src}:`, e);
+        setScriptLoadError(`Failed to load: ${src}`);
+      };
+      document.head.appendChild(script);
+      scriptElements.push(script);
+    });
+
+    // Cleanup function
+    return () => {
+      scriptElements.forEach((script) => {
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+      });
+    };
+  }, [scriptsLoaded]);
+
+  // Initialize MediaPipe after scripts are loaded
+  useEffect(() => {
+    if (!scriptsLoaded) return;
+
     const initializeCamera = async () => {
       if (typeof window === 'undefined') return;
       
-      // Wait for MediaPipe libraries to load
-      if (!window.Pose || !window.Camera || !window.drawConnectors || !window.drawLandmarks || !window.POSE_CONNECTIONS) {
-        console.log('Waiting for MediaPipe libraries to load...');
-        setTimeout(initializeCamera, 1000);
+      // Double-check MediaPipe libraries are available
+      if (!window.Pose || !window.Camera) {
+        console.error('MediaPipe libraries not found on window object');
+        setError('MediaPipe libraries failed to load. Please refresh the page.');
         return;
       }
-      
+
+      // Drawing utils might not be available, that's okay - we have fallback
       console.log('MediaPipe libraries loaded successfully');
 
       try {
         console.log('Initializing MediaPipe Pose...');
+        
         // Initialize pose
         const pose = new window.Pose({ 
           locateFile: (file) => {
@@ -293,16 +438,21 @@ const AIFitnessTracker = () => {
           await camera.start();
           console.log('Camera started successfully');
           setIsInitialized(true);
+        } else {
+          console.error('Video ref not available');
+          setError('Video element not found. Please refresh the page.');
         }
       } catch (error) {
         console.error('Error initializing MediaPipe:', error);
-        setError('Failed to initialize camera. Please check if your browser supports MediaPipe and camera access.');
+        setError(`Failed to initialize camera: ${error.message}. Please check if your browser supports camera access and try again.`);
         setFeedbackText('Error initializing camera. Please refresh the page.');
       }
     };
 
-    initializeCamera();
-  }, [onResults]);
+    // Small delay to ensure everything is ready
+    const timer = setTimeout(initializeCamera, 500);
+    return () => clearTimeout(timer);
+  }, [scriptsLoaded, onResults]);
 
   // Handle exercise change
   const handleExerciseChange = (e) => {
@@ -327,24 +477,40 @@ const AIFitnessTracker = () => {
   // Initialize on mount
   useEffect(() => {
     resetForNewExercise(currentExercise);
+    setSessionStartTime(new Date());
   }, [currentExercise, resetForNewExercise]);
 
   return (
     <div style={{
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      margin: 0,
-      padding: '20px 0',
-      backgroundColor: '#f4f4f9',
-      boxSizing: 'border-box'
-    }}>
-      <h1 style={{ color: '#333', marginTop: 0 }}>Dietamigo AI Fitness Tracker</h1>
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        margin: 0,
+        padding: '20px 0',
+        backgroundColor: '#f4f4f9',
+        boxSizing: 'border-box'
+      }}>
+        <h1 style={{ color: '#333', marginTop: 0 }}>Dietamigo AI Fitness Tracker</h1>
 
-      {error && (
+        {scriptLoadError && (
+          <div style={{
+            backgroundColor: '#ffebee',
+            color: '#c62828',
+            padding: '15px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            border: '1px solid #ef5350',
+            maxWidth: '640px',
+            textAlign: 'center'
+          }}>
+            <strong>Script Loading Error:</strong> {scriptLoadError}
+          </div>
+        )}
+
+        {error && (
         <div style={{
           backgroundColor: '#ffebee',
           color: '#c62828',
@@ -455,9 +621,9 @@ const AIFitnessTracker = () => {
           <span style={{ fontSize: '1.5em', color: '#d9534f', fontWeight: 'bold', minHeight: '1.5em' }}>
             {feedbackText}
           </span>
-          {!isInitialized && !error && (
+          {!isInitialized && !error && !scriptLoadError && (
             <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
-              Loading camera and AI detection...
+              {scriptsLoaded ? 'Loading camera and AI detection...' : 'Loading MediaPipe libraries...'}
             </div>
           )}
         </div>
@@ -465,37 +631,76 @@ const AIFitnessTracker = () => {
       
       <div style={{
         display: 'flex',
-        justifyContent: 'space-around',
+        flexDirection: 'column',
+        alignItems: 'center',
         width: '640px',
         marginTop: '15px',
-        flexWrap: 'wrap',
         gap: '15px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#555' }}>
-          <label htmlFor="resizeSlider">🔎 Zoom</label>
-          <input 
-            type="range" 
-            id="resizeSlider" 
-            min="0.5" 
-            max="1.5" 
-            step="0.1" 
-            value={resizeScale}
-            onChange={handleResizeChange}
-            style={{ cursor: 'pointer' }}
-          />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#555' }}>
-          <label htmlFor="volumeSlider">🔊 Volume</label>
-          <input 
-            type="range" 
-            id="volumeSlider" 
-            min="0" 
-            max="1" 
-            step="0.1" 
-            value={speechVolume}
-            onChange={(e) => setSpeechVolume(parseFloat(e.target.value))}
-            style={{ cursor: 'pointer' }}
-          />
+        <button
+          onClick={saveExerciseSession}
+          disabled={isSaving || repCounter === 0}
+          style={{
+            padding: '12px 24px',
+            fontSize: '1em',
+            fontWeight: 'bold',
+            color: '#fff',
+            backgroundColor: isSaving || repCounter === 0 ? '#ccc' : '#007bff',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: isSaving || repCounter === 0 ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.3s',
+          }}
+        >
+          {isSaving ? 'Saving...' : '💾 Save Exercise Session'}
+        </button>
+        
+        {saveMessage && (
+          <div style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            backgroundColor: saveMessage.includes('Error') ? '#ffebee' : '#e8f5e9',
+            color: saveMessage.includes('Error') ? '#c62828' : '#2e7d32',
+            fontSize: '0.9em',
+            textAlign: 'center',
+          }}>
+            {saveMessage}
+          </div>
+        )}
+
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          width: '100%',
+          flexWrap: 'wrap',
+          gap: '15px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#555' }}>
+            <label htmlFor="resizeSlider">🔎 Zoom</label>
+            <input 
+              type="range" 
+              id="resizeSlider" 
+              min="0.5" 
+              max="1.5" 
+              step="0.1" 
+              value={resizeScale}
+              onChange={handleResizeChange}
+              style={{ cursor: 'pointer' }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#555' }}>
+            <label htmlFor="volumeSlider">🔊 Volume</label>
+            <input 
+              type="range" 
+              id="volumeSlider" 
+              min="0" 
+              max="1" 
+              step="0.1" 
+              value={speechVolume}
+              onChange={(e) => setSpeechVolume(parseFloat(e.target.value))}
+              style={{ cursor: 'pointer' }}
+            />
+          </div>
         </div>
       </div>
     </div>

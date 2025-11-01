@@ -3,7 +3,9 @@ import connectToDatabase from '@/lib/mongodb';
 import mongoose from 'mongoose';
 
 export async function GET() {
-  console.log('🧪 Testing database connection...');
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🧪 Testing database connection...');
+  }
   
   try {
     // Test the connection
@@ -21,7 +23,9 @@ export async function GET() {
       3: 'disconnecting'
     };
     
-    console.log('✅ Database test successful');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ Database test successful');
+    }
     
     // Also test User model
     const User = (await import('@/models/User')).default;
@@ -43,7 +47,9 @@ export async function GET() {
       { status: 200 }
     );
   } catch (error) {
-    console.error('❌ Database test failed:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('❌ Database test failed:', error);
+    }
     
     // Provide specific error messages
     let errorType = 'Unknown Error';

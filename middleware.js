@@ -6,6 +6,7 @@ export const config = {
     "/diet-recommender/:path*",
     "/exercise-trainer/:path*",
     "/journal/:path*",
-    "/progress-analysis/:path*"
+    "/progress-analysis/:path*",
+    "/account/:path*"
   ]
 };

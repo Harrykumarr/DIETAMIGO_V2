@@ -23,6 +23,49 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false, // Don't include password in queries by default
   },
+  // Password reset fields
+  resetPasswordToken: {
+    type: String,
+    select: false,
+  },
+  resetPasswordExpires: {
+    type: Date,
+    select: false,
+  },
+  // User profile information
+  profile: {
+    age: {
+      type: Number,
+      min: [1, 'Age must be at least 1'],
+      max: [150, 'Age must be less than 150'],
+    },
+    weight: {
+      type: Number,
+      min: [1, 'Weight must be at least 1 kg'],
+      max: [500, 'Weight must be less than 500 kg'],
+    },
+    height: {
+      type: Number,
+      min: [0.5, 'Height must be at least 0.5 m'],
+      max: [3, 'Height must be less than 3 m'],
+    },
+    gender: {
+      type: String,
+      enum: ['male', 'female', 'other', 'prefer-not-to-say'],
+    },
+    activityLevel: {
+      type: String,
+      enum: ['sedentary', 'moderate', 'active'],
+    },
+    dietaryRestrictions: {
+      type: [String],
+      default: [],
+    },
+    goals: {
+      type: [String],
+      default: [],
+    },
+  },
 }, {
   timestamps: true, // Adds createdAt and updatedAt fields
 });
@@ -65,7 +108,9 @@ userSchema.statics.findByEmailWithPassword = function (email) {
 // Create or get existing model (prevents re-compilation errors)
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
-// Debug logging
-console.log('📝 User model initialized:', User.modelName);
+// Debug logging only in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('📝 User model initialized:', User.modelName);
+}
 
 export default User;

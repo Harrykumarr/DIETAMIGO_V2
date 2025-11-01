@@ -40,6 +40,7 @@ export default function DietRecommenderChatbot() {
   });
   const [conversationStage, setConversationStage] = useState("initial");
   const messagesEndRef = useRef(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,6 +49,55 @@ export default function DietRecommenderChatbot() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Load user profile from database on mount
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        const response = await fetch('/api/profile', { credentials: 'same-origin' });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.profile && Object.keys(data.profile).length > 0) {
+            const dbProfile = data.profile;
+            const loadedProfile = {
+              weight: dbProfile.weight || null,
+              height: dbProfile.height || null,
+              age: dbProfile.age || null,
+              activityLevel: dbProfile.activityLevel || null,
+              dietaryRestrictions: dbProfile.dietaryRestrictions || [],
+              goals: dbProfile.goals || [],
+            };
+            
+            setUserProfile(loadedProfile);
+            setProfileLoaded(true);
+            
+            // Update welcome message if profile is loaded
+            if (loadedProfile.weight && loadedProfile.height && loadedProfile.age) {
+              const bmi = calculateBmi(loadedProfile.weight, loadedProfile.height);
+              setMessages([
+                { 
+                  sender: "bot", 
+                  text: "🍎 Welcome back! I see you have a profile set up. I can help you with personalized diet recommendations based on your information.", 
+                  timestamp: new Date()
+                },
+                {
+                  sender: "bot",
+                  text: `I have your profile:\n• Age: ${loadedProfile.age}\n• Weight: ${loadedProfile.weight} kg\n• Height: ${loadedProfile.height} m\n• BMI: ${bmi}\n• Activity Level: ${loadedProfile.activityLevel || 'Not set'}\n\nWould you like to get a personalized diet recommendation, or update your information?`,
+                  timestamp: new Date()
+                }
+              ]);
+            }
+          }
+        }
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error("Failed to load user profile:", err);
+        }
+      }
+    };
+
+    loadUserProfile();
+  }, []);
 
   // BMI calculation
   const calculateBmi = (weight, height) => {
@@ -115,7 +165,9 @@ export default function DietRecommenderChatbot() {
     
     try {
       const bmi = calculateBmi(profile.weight, profile.height);
-      const prompt = `My BMI is ${bmi}. I am ${profile.age} years old, ${profile.activityLevel} activity level. ${profile.dietaryRestrictions?.length ? `Dietary restrictions: ${profile.dietaryRestrictions.join(', ')}.` : ''} Suggest a healthy daily diet plan based on this information.`;
+  // Include any explicit user question/intent if provided in profile._userMessage
+  const userMessagePart = profile._userMessage ? ` User said: "${profile._userMessage}".` : '';
+  const prompt = `My BMI is ${bmi}. I am ${profile.age} years old, ${profile.activityLevel} activity level.${profile.dietaryRestrictions?.length ? ` Dietary restrictions: ${profile.dietaryRestrictions.join(', ')}.` : ''}${userMessagePart} Suggest a healthy daily diet plan based on this information.`;
       
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -150,6 +202,7 @@ export default function DietRecommenderChatbot() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ 
           message: question,
           userProfile: userProfile 
@@ -188,10 +241,12 @@ export default function DietRecommenderChatbot() {
 
     if (hasBasicInfo && conversationStage === "initial") {
       setConversationStage("generating");
+      // Attach the user's question/message to profile for the prompt
+      const profileWithMessage = { ...updatedProfile, _userMessage: userInput };
+
+      // Generate diet recommendation (include user's input)
+      const recommendation = await generateDietRecommendation(profileWithMessage);
       setUserInput("");
-      
-      // Generate diet recommendation
-      const recommendation = await generateDietRecommendation(updatedProfile);
       setMessages(prev => [...prev, { sender: "bot", text: recommendation, timestamp: new Date() }]);
       
       // Ask for follow-up
@@ -205,15 +260,27 @@ export default function DietRecommenderChatbot() {
       }, 1000);
       
     } else if (conversationStage === "initial") {
-      // Ask for missing information
-      let missingInfo = [];
-      if (!updatedProfile.weight) missingInfo.push("weight");
-      if (!updatedProfile.height) missingInfo.push("height");
-      if (!updatedProfile.age) missingInfo.push("age");
-      if (!updatedProfile.activityLevel) missingInfo.push("activity level");
-      
-      const response = `I've noted your information! I still need your ${missingInfo.join(", ")}. Could you please provide these details?`;
-      setMessages(prev => [...prev, { sender: "bot", text: response, timestamp: new Date() }]);
+      // Check if profile was loaded from database
+      if (profileLoaded && !hasBasicInfo) {
+        const missingInfo = [];
+        if (!updatedProfile.weight) missingInfo.push("weight");
+        if (!updatedProfile.height) missingInfo.push("height");
+        if (!updatedProfile.age) missingInfo.push("age");
+        if (!updatedProfile.activityLevel) missingInfo.push("activity level");
+        
+        const response = `I've noted your information! To provide the best recommendations, I still need your ${missingInfo.join(", ")}. You can provide them here or update your profile in Account Settings.`;
+        setMessages(prev => [...prev, { sender: "bot", text: response, timestamp: new Date() }]);
+      } else if (!profileLoaded) {
+        // Ask for missing information
+        const missingInfo = [];
+        if (!updatedProfile.weight) missingInfo.push("weight");
+        if (!updatedProfile.height) missingInfo.push("height");
+        if (!updatedProfile.age) missingInfo.push("age");
+        if (!updatedProfile.activityLevel) missingInfo.push("activity level");
+        
+        const response = `I've noted your information! I still need your ${missingInfo.join(", ")}. Could you please provide these details?`;
+        setMessages(prev => [...prev, { sender: "bot", text: response, timestamp: new Date() }]);
+      }
       
     } else if (conversationStage === "followup") {
       // Handle follow-up questions using Gemini AI
@@ -227,6 +294,196 @@ export default function DietRecommenderChatbot() {
 
   const handleQuickReply = (reply) => {
     setUserInput(reply);
+  };
+
+  // Format text with markdown-like styling
+  const formatMessageText = (text) => {
+    if (!text) return null;
+    
+    // Split text into sections by double newlines or list patterns
+    const sections = [];
+    const lines = text.split('\n');
+    let currentSection = [];
+    let inList = false;
+    
+    lines.forEach((line, idx) => {
+      const trimmedLine = line.trim();
+      const isListItem = /^[•\-\*]\s+/.test(trimmedLine) || /^\d+\.\s+/.test(trimmedLine);
+      const isHeader = /^#{1,3}\s+/.test(trimmedLine);
+      
+      // If we hit a header or empty line, finalize current section
+      if (isHeader || (!trimmedLine && currentSection.length > 0)) {
+        if (currentSection.length > 0) {
+          sections.push({ type: inList ? 'list' : 'paragraph', content: currentSection.join('\n') });
+          currentSection = [];
+          inList = false;
+        }
+        if (isHeader) {
+          sections.push({ type: 'header', content: trimmedLine });
+        }
+        return;
+      }
+      
+      // Check if we're starting or continuing a list
+      if (isListItem) {
+        if (!inList && currentSection.length > 0) {
+          sections.push({ type: 'paragraph', content: currentSection.join('\n') });
+          currentSection = [];
+        }
+        inList = true;
+        currentSection.push(line);
+      } else if (trimmedLine) {
+        if (inList) {
+          sections.push({ type: 'list', content: currentSection.join('\n') });
+          currentSection = [];
+          inList = false;
+        }
+        currentSection.push(line);
+      } else if (currentSection.length > 0) {
+        sections.push({ type: inList ? 'list' : 'paragraph', content: currentSection.join('\n') });
+        currentSection = [];
+        inList = false;
+      }
+    });
+    
+    // Add remaining content
+    if (currentSection.length > 0) {
+      sections.push({ type: inList ? 'list' : 'paragraph', content: currentSection.join('\n') });
+    }
+    
+    return sections.map((section, sIdx) => {
+      if (!section.content.trim()) return null;
+      
+      // Render headers
+      if (section.type === 'header') {
+        const headerMatch = section.content.match(/^(#{1,3})\s+(.+)/);
+        if (headerMatch) {
+          const level = headerMatch[1].length;
+          const headerText = headerMatch[2];
+          const className = `font-bold mt-4 mb-2 text-foreground ${
+            level === 1 ? 'text-xl' : level === 2 ? 'text-lg' : 'text-base'
+          }`;
+          
+          if (level === 1) {
+            return <h1 key={sIdx} className={className}>{formatInlineText(headerText)}</h1>;
+          } else if (level === 2) {
+            return <h2 key={sIdx} className={className}>{formatInlineText(headerText)}</h2>;
+          } else {
+            return <h3 key={sIdx} className={className}>{formatInlineText(headerText)}</h3>;
+          }
+        }
+      }
+      
+      // Render lists
+      if (section.type === 'list') {
+        const listItems = section.content.split('\n').filter(line => line.trim());
+        const isOrdered = /^\d+\.\s+/.test(listItems[0]?.trim() || '');
+        
+        return isOrdered ? (
+          <ol key={sIdx} className="list-decimal list-inside space-y-1.5 my-3 ml-2">
+            {listItems.map((item, itemIdx) => {
+              const cleanItem = item.replace(/^\d+\.\s+/, '').replace(/^[•\-\*]\s+/, '');
+              return (
+                <li key={itemIdx} className="text-sm leading-relaxed">
+                  {formatInlineText(cleanItem)}
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <ul key={sIdx} className="list-disc list-inside space-y-1.5 my-3 ml-2">
+            {listItems.map((item, itemIdx) => {
+              const cleanItem = item.replace(/^[•\-\*]\s+/, '').replace(/^\d+\.\s+/, '');
+              return (
+                <li key={itemIdx} className="text-sm leading-relaxed">
+                  {formatInlineText(cleanItem)}
+                </li>
+              );
+            })}
+          </ul>
+        );
+      }
+      
+      // Render paragraphs
+      return (
+        <div key={sIdx} className="my-2">
+          {section.content.split('\n').map((line, lineIdx) => {
+            if (!line.trim()) return <br key={lineIdx} />;
+            return (
+              <p key={lineIdx} className="text-sm leading-relaxed mb-1.5">
+                {formatInlineText(line)}
+              </p>
+            );
+          })}
+        </div>
+      );
+    }).filter(Boolean);
+  };
+
+  // Format inline text (bold, italic, code)
+  const formatInlineText = (text) => {
+    if (!text) return null;
+    
+    const parts = [];
+    let currentIndex = 0;
+    
+    // Match **bold**, *italic*, `code`
+    const patterns = [
+      { regex: /\*\*([^*]+)\*\*/g, type: 'bold' },
+      { regex: /\*([^*]+)\*/g, type: 'italic' },
+      { regex: /`([^`]+)`/g, type: 'code' },
+    ];
+    
+    const matches = [];
+    patterns.forEach(({ regex, type }) => {
+      let match;
+      regex.lastIndex = 0; // Reset regex
+      while ((match = regex.exec(text)) !== null) {
+        matches.push({
+          type,
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[1],
+        });
+      }
+    });
+    
+    // Sort matches by start position
+    matches.sort((a, b) => a.start - b.start);
+    
+    // Build parts array
+    matches.forEach((match) => {
+      if (match.start > currentIndex) {
+        parts.push({ type: 'text', content: text.substring(currentIndex, match.start) });
+      }
+      parts.push({ type: match.type, content: match.content });
+      currentIndex = match.end;
+    });
+    
+    if (currentIndex < text.length) {
+      parts.push({ type: 'text', content: text.substring(currentIndex) });
+    }
+    
+    if (parts.length === 0) {
+      return text;
+    }
+    
+    return parts.map((part, idx) => {
+      switch (part.type) {
+        case 'bold':
+          return <strong key={idx} className="font-semibold text-foreground">{part.content}</strong>;
+        case 'italic':
+          return <em key={idx} className="italic">{part.content}</em>;
+        case 'code':
+          return (
+            <code key={idx} className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
+              {part.content}
+            </code>
+          );
+        default:
+          return <span key={idx}>{part.content}</span>;
+      }
+    });
   };
 
   const quickReplies = conversationStage === "initial" 
@@ -288,15 +545,27 @@ export default function DietRecommenderChatbot() {
             )}
             
             <div
-              className={`max-w-[70%] p-3 rounded-lg whitespace-pre-line ${
+              className={`max-w-[70%] p-4 rounded-lg ${
                 msg.sender === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-card text-card-foreground border shadow-sm"
               }`}
             >
-              {msg.text}
-              <div className={`text-xs mt-2 opacity-70 ${
-                msg.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"
+              {msg.sender === "bot" ? (
+                <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <div className="text-sm leading-relaxed">
+                    {formatMessageText(msg.text)}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm whitespace-pre-wrap break-words">
+                  {msg.text}
+                </div>
+              )}
+              <div className={`text-xs mt-3 pt-2 border-t ${
+                msg.sender === "user" 
+                  ? "text-primary-foreground/70 border-primary-foreground/20" 
+                  : "text-muted-foreground border-border"
               }`}>
                 {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>

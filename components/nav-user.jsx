@@ -52,9 +52,9 @@ export function NavUser({ user }) {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground h-12 px-3 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:mx-2 group-data-[collapsible=icon]:justify-center transition-all duration-300 ease-in-out"
             >
               <Avatar className="h-8 w-8 rounded-lg shrink-0 transition-all duration-300 ease-in-out">
-                <AvatarImage src={user.avatar} alt={session?.user?.name} />
+                <AvatarImage src={user?.avatar} alt={session?.user?.name || user?.name} />
                 <AvatarFallback className="rounded-lg text-sm transition-all duration-300 ease-in-out">
-                  CN
+                  {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'CN'}
                 </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-base leading-tight ml-3 group-data-[collapsible=icon]:ml-0 group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:w-0 group-data-[collapsible=icon]:overflow-hidden transition-all duration-300 ease-in-out">
@@ -77,17 +77,17 @@ export function NavUser({ user }) {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-3 px-2 py-2 text-left text-sm">
                 <Avatar className="h-10 w-10 rounded-lg">
-                  <AvatarImage src={user.avatar} alt={session?.user?.name} />
+                  <AvatarImage src={user?.avatar} alt={session?.user?.name || user?.name || 'User'} />
                   <AvatarFallback className="rounded-lg text-base">
-                    CN
+                    {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'CN'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold text-base">
-                    {session?.user?.name}
+                    {session?.user?.name || user?.name || 'User'}
                   </span>
                   <span className="truncate text-sm text-muted-foreground">
-                    {session?.user?.email}
+                    {session?.user?.email || user?.email || ''}
                   </span>
                 </div>
               </div>
@@ -101,9 +101,11 @@ export function NavUser({ user }) {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheck />
-                Account
+              <DropdownMenuItem asChild>
+                <a href="/account" className="flex items-center">
+                  <BadgeCheck />
+                  Account
+                </a>
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <CreditCard />
@@ -135,13 +137,9 @@ export function NavUser({ user }) {
               </DropdownMenuSub>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => signOut()}>
               <LogOut />
-              <button
-                onClick={() => signOut()}
-              >
-                Log Out
-              </button>
+              Log Out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

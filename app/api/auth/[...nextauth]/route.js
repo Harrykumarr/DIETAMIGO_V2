@@ -13,24 +13,40 @@ export const authOptions = {
       async authorize(credentials) {
         const { email, password } = credentials;
 
+        // Validate input
+        if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+          return null;
+        }
+
+        // Sanitize email
+        const sanitizedEmail = email.trim().toLowerCase().slice(0, 255);
+
         try {
           await connectToDatabase();
           // Use the static method to get user with password
-          const user = await User.findByEmailWithPassword(email);
+          const user = await User.findByEmailWithPassword(sanitizedEmail);
 
           if (!user) {
-            console.log("No user found with email:", email);
+            // Don't expose whether user exists or not - security best practice
+            if (process.env.NODE_ENV === 'development') {
+              console.log("Authentication failed: Invalid credentials");
+            }
             return null;
           }
 
           const passwordsMatch = await bcrypt.compare(password, user.password);
 
           if (!passwordsMatch) {
-            console.log("Password mismatch for user:", email);
+            // Don't expose whether password is wrong or user doesn't exist
+            if (process.env.NODE_ENV === 'development') {
+              console.log("Authentication failed: Invalid credentials");
+            }
             return null;
           }
 
-          console.log("✅ Authentication successful for:", email);
+          if (process.env.NODE_ENV === 'development') {
+            console.log("✅ Authentication successful");
+          }
           // Return user without password for session
           return {
             id: user._id,
@@ -38,7 +54,9 @@ export const authOptions = {
             email: user.email,
           };
         } catch (error) {
-          console.log("❌ NextAuth authorize error:", error);
+          if (process.env.NODE_ENV === 'development') {
+            console.error("❌ NextAuth authorize error:", error.message);
+          }
           return null;
         }
       },
