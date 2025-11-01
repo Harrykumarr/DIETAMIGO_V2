@@ -5,15 +5,23 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function LoginPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   useEffect(() => {
-    if (session) {
-      // Redirect to dashboard if already logged in
-      router.push("/dashboard");
+    if (status === "authenticated") {
+      // Redirect to dashboard immediately if authenticated
+      router.replace("/dashboard");
     }
-  }, [session, router]);
+  }, [status, router]);
+
+  if (status === "loading") {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen">
+        <h1 className="text-2xl font-bold mb-4">Checking authentication...</h1>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-screen">
